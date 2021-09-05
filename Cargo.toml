@@ -13,4 +13,4 @@ tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4.19", features = ["serde"] }
 serde_json = "1"
-spinners = "2.0.0"
+indicatif = "0.16.2"

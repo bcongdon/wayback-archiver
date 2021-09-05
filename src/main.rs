@@ -1,6 +1,6 @@
 use chrono::{Duration, Utc};
 use clap::{AppSettings, Clap};
-use spinners::{Spinner, Spinners};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, BufRead, Write};
@@ -38,34 +38,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = io::stdin();
     for (line_idx, line) in stdin.lock().lines().enumerate() {
         let line = line?;
-        eprintln!("[{}/?] Archiving {:#?}...", line_idx + 1, line);
+
+        let pb = ProgressBar::new_spinner();
+        pb.enable_steady_tick(120);
+        pb.set_style(
+            ProgressStyle::default_spinner().template("{prefix:.bold.dim} {spinner:.blue} {msg}"),
+        );
+        pb.set_prefix(format!("[{}/?]", line_idx + 1));
+
         if let Some(existing) = urls.get(&line) {
             // If the last archival time of the URL was within ~6 months, accept it and move on.
             if (Utc::now().naive_utc() - existing.last_archived) < Duration::days(30 * 6) {
-                eprintln!("  -> URL already archived");
+                pb.finish_with_message(format!("URL already archived: {}", line));
                 continue;
             }
         }
 
+        pb.set_message(format!("Waiting to archive {}...", line));
+        std::thread::sleep(Duration::seconds(5).to_std().expect("sleep duration"));
+        pb.set_message(format!("Archiving {}...", line));
+
         loop {
-            let sp = Spinner::new(&Spinners::Line, "foo".into());
             let result = match archive_url(&line).await {
                 Ok(out) => {
-                    eprintln!("  -> Done: {}", out);
+                    pb.finish_with_message(format!("Done: {}", out));
                     ArchivingResult {
                         last_archived: Utc::now().naive_local(),
                         url: Some(out.clone()),
                     }
                 }
                 Err(err) => {
-                    eprintln!("  -> Archiving failed: {}", err);
                     if let Some(ArchiveError::BandwidthExceeded) =
                         err.downcast_ref::<ArchiveError>()
                     {
-                        eprintln!("  -> Bandwidth exceeded. Waiting...");
+                        pb.set_message("Bandwidth exceeded. Waiting...");
                         std::thread::sleep(Duration::seconds(15).to_std().expect("sleep duration"));
                         continue;
                     }
+                    pb.finish_with_message(format!("Archiving failed: {}", err));
                     ArchivingResult {
                         last_archived: Utc::now().naive_local(),
                         url: None,
@@ -73,10 +83,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
             urls.insert(line.clone(), result);
-            sp.stop();
             break;
         }
-        std::thread::sleep(Duration::seconds(5).to_std().expect("sleep duration"));
     }
 
     let formatted_urls = serde_json::to_string_pretty(&urls)?;
