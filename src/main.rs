@@ -19,6 +19,7 @@ struct Opts {
     out: Option<String>,
     #[clap(short, long)]
     merge: bool,
+    urls_file: Option<String>,
 }
 
 #[tokio::main]
@@ -42,11 +43,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let total_lines_count = Arc::new(Mutex::new(0));
     let total_lines_count_clone = total_lines_count.clone();
-    thread::spawn(move || {
-        let stdin = io::stdin();
-        for line in stdin.lock().lines() {
-            tx.send(line.expect("line")).expect("send");
-            *total_lines_count.lock().unwrap() += 1;
+
+    // Spawn a separate thread to pull from the lines source.
+    let urls_file = opts.urls_file;
+    thread::spawn(move ||
+        // This could probably be refactored...
+        match urls_file {
+        // Read URLs from a file.
+        Some(path) => {
+            // TODO: Propagate error better here.
+            let file = fs::File::open(path).expect("unable to open file");
+            for line in std::io::BufReader::new(file).lines() {
+                tx.send(line.expect("line")).expect("send");
+                *total_lines_count.lock().unwrap() += 1;
+            }
+        }
+        // Fall back on stdin.
+        None => {
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {
+                tx.send(line.expect("line")).expect("send");
+                *total_lines_count.lock().unwrap() += 1;
+            }
         }
     });
 
@@ -70,18 +88,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        pb.set_message(format!("Waiting to archive {}...", line));
-        // std::thread::sleep(Duration::seconds(5).to_std().expect("sleep duration"));
         pb.set_message(format!("Archiving {}...", line));
-
         loop {
             let result = match archive_url(&line).await {
-                Ok(out) => {
-                    pb.finish_with_message(format!("Done: {}", out));
-                    ArchivingResult {
-                        last_archived: Utc::now().naive_local(),
-                        url: Some(out.clone()),
+                Ok(success) => {
+                    if !success.existing_snapshot {
+                        pb.set_message("Cooldown after archiving...");
+                        std::thread::sleep(Duration::seconds(5).to_std().expect("sleep duration"));
                     }
+                    pb.finish_with_message(format!(
+                        "Done: {}",
+                        &success.url.as_ref().expect("archive url")
+                    ));
+                    success
                 }
                 Err(err) => {
                     if let Some(ArchiveError::BandwidthExceeded) =
@@ -95,6 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ArchivingResult {
                         last_archived: Utc::now().naive_local(),
                         url: None,
+                        existing_snapshot: false,
                     }
                 }
             };
