@@ -1,6 +1,5 @@
 use chrono::{Duration, Utc};
 use clap::{AppSettings, Clap};
-use crossbeam_channel;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::BTreeMap;
 use std::fs;

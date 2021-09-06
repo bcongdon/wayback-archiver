@@ -58,15 +58,13 @@ pub async fn archive_url(url: &str) -> Result<ArchivingResult, Box<dyn std::erro
             Err(ArchiveError::Unknown(format!("Got status {}: {:#?}", resp.status(), resp)).into())
         }
     };
-    archive_url
-        .and_then(|url| {
-            Ok(ArchivingResult {
-                last_archived: timestamp_from_archive_url(&url)?,
-                url: Some(url),
-                existing_snapshot: false,
-            })
+    archive_url.and_then(|url| {
+        Ok(ArchivingResult {
+            last_archived: timestamp_from_archive_url(&url)?,
+            url: Some(url),
+            existing_snapshot: false,
         })
-        .into()
+    })
 }
 
 fn timestamp_from_archive_url(url: &str) -> Result<NaiveDateTime, Box<dyn std::error::Error>> {
