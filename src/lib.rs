@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // TODO: Figure out how to refactor this to return `Result<String, ArchiveError>`.
+// TODO: Have a way for this to return if it was an existing snapshot, or a fresh archive.
 pub async fn archive_url(url: &str) -> Result<String, Box<dyn std::error::Error>> {
     // Check to see if there's an existing archive of the requested URL.
     let resp = reqwest::get(format!("http://archive.org/wayback/available?url={}", url))
@@ -23,6 +24,7 @@ pub async fn archive_url(url: &str) -> Result<String, Box<dyn std::error::Error>
             }
         }
     }
+    std::thread::sleep(Duration::seconds(5).to_std().expect("sleep duration"));
 
     // Request a new snapshot of the URL.
     let resp = reqwest::get(format!("https://web.archive.org/save/{}", url)).await?;
@@ -44,7 +46,7 @@ pub async fn archive_url(url: &str) -> Result<String, Box<dyn std::error::Error>
         }
         509 => Err(ArchiveError::BandwidthExceeded.into()),
         // There may be more status codes that indicate archive failure, but these were the most common.
-        520 | 523 => Err(ArchiveError::ArchiveFailed.into()),
+        403 | 520 | 523 => Err(ArchiveError::UnableToArchive.into()),
         _ => {
             dbg!(&resp);
             Err(ArchiveError::Unknown(format!("Got status {}: {:#?}", resp.status(), resp)).into())
@@ -75,7 +77,7 @@ pub struct ArchivingResult {
 #[derive(Debug)]
 pub enum ArchiveError {
     BandwidthExceeded,
-    ArchiveFailed,
+    UnableToArchive,
     Unknown(String),
 }
 
@@ -83,7 +85,9 @@ impl std::fmt::Display for ArchiveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ArchiveError::BandwidthExceeded => write!(f, "Bandwidth Exceeded"),
-            ArchiveError::ArchiveFailed => write!(f, "Wayback Machine unable to archive this URL"),
+            ArchiveError::UnableToArchive => {
+                write!(f, "Wayback Machine unable to archive this URL")
+            }
             ArchiveError::Unknown(err) => write!(f, "Unknown error: {}", err),
         }
     }
