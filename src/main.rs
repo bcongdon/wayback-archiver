@@ -4,7 +4,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use std::sync::Arc;
 use std::thread;
 
 mod lib;
@@ -18,7 +19,9 @@ struct Opts {
     out: Option<String>,
     #[clap(short, long)]
     merge: bool,
+    #[clap(short, long)]
     urls_file: Option<String>,
+    urls: Vec<String>,
 }
 
 #[tokio::main]
@@ -40,32 +43,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let total_lines_count = Arc::new(Mutex::new(0));
+    let total_lines_count = Arc::new(AtomicUsize::new(0));
     let total_lines_count_clone = total_lines_count.clone();
 
-    // Spawn a separate thread to pull from the lines source.
-    let urls_file = opts.urls_file;
-    thread::spawn(move ||
-        // This could probably be refactored...
-        match urls_file {
-        // Read URLs from a file.
-        Some(path) => {
-            // TODO: Propagate error better here.
-            let file = fs::File::open(path).expect("unable to open file");
-            for line in std::io::BufReader::new(file).lines() {
-                tx.send(line.expect("line")).expect("send");
-                *total_lines_count.lock().unwrap() += 1;
-            }
+    // Synchronous URL source(s).
+    if !opts.urls.is_empty() {
+        for url in &opts.urls {
+            tx.send(url.into())?;
         }
-        // Fall back on stdin.
-        None => {
-            let stdin = io::stdin();
-            for line in stdin.lock().lines() {
-                tx.send(line.expect("line")).expect("send");
-                *total_lines_count.lock().unwrap() += 1;
+        total_lines_count.fetch_add(opts.urls.len(), SeqCst);
+        drop(tx); // Close channel.
+    }
+    // Asynchronous URL source(s).
+    else {
+        // Spawn a separate thread to pull from the lines source.
+        let urls_file = opts.urls_file;
+        thread::spawn(move ||
+            // This could probably be refactored...
+            match urls_file {
+            // Read URLs from a file.
+            Some(path) => {
+                // TODO: Propagate error better here.
+                let file = fs::File::open(path).expect("unable to open file");
+                for line in std::io::BufReader::new(file).lines() {
+                    tx.send(line.expect("line")).expect("send");
+                    total_lines_count.fetch_add(1, SeqCst);
+                }
             }
-        }
-    });
+            // Fall back on stdin.
+            None => {
+                let stdin = io::stdin();
+                for line in stdin.lock().lines() {
+                    tx.send(line.expect("line")).expect("send");
+                    total_lines_count.fetch_add(1, SeqCst);
+                }
+            }
+        });
+    }
 
     for (line_idx, line) in rx.clone().into_iter().enumerate() {
         let pb = ProgressBar::new_spinner();
@@ -76,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pb.set_prefix(format!(
             "[{}/{}]",
             line_idx + 1,
-            *total_lines_count_clone.lock().unwrap()
+            total_lines_count_clone.load(SeqCst)
         ));
 
         if let Some(existing) = urls.get(&line) {
@@ -91,14 +105,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             let result = match archive_url(&line).await {
                 Ok(success) => {
-                    if !success.existing_snapshot {
-                        pb.set_message("Cooldown after archiving...");
-                        std::thread::sleep(Duration::seconds(5).to_std().expect("sleep duration"));
-                    }
                     pb.finish_with_message(format!(
                         "Done: {}",
                         &success.url.as_ref().expect("archive url")
                     ));
+                    if !success.existing_snapshot {
+                        let pb = ProgressBar::new_spinner();
+                        pb.enable_steady_tick(180);
+                        pb.set_message("Cooldown after archiving...");
+                        std::thread::sleep(Duration::seconds(3).to_std().expect("sleep duration"));
+                        pb.finish_and_clear();
+                    }
                     success
                 }
                 Err(err) => {
@@ -109,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         std::thread::sleep(Duration::seconds(15).to_std().expect("sleep duration"));
                         continue;
                     }
-                    pb.finish_with_message(format!("Archiving failed: {}", err));
+                    pb.finish_with_message(format!("Archiving failed: {} ({})", err, line));
                     ArchivingResult {
                         last_archived: Utc::now().naive_local(),
                         url: None,
@@ -121,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
-        if line_idx != 0 && line_idx % 100 == 0 {
+        if (line_idx + 1) % 25 == 0 {
             if let Some(out_path) = &opts.out {
                 eprintln!("Writing intermediate results...");
                 write_results(&urls, out_path)?;

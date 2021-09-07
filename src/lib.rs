@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // TODO: Figure out how to refactor this to return `Result<String, ArchiveError>`.
-// TODO: Have a way for this to return if it was an existing snapshot, or a fresh archive.
 pub async fn archive_url(url: &str) -> Result<ArchivingResult, Box<dyn std::error::Error>> {
     // Check to see if there's an existing archive of the requested URL.
     let resp = reqwest::get(format!("http://archive.org/wayback/available?url={}", url))
