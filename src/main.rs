@@ -15,12 +15,19 @@ use crate::lib::{archive_url, ArchiveError, ArchivingResult};
 #[clap(version = "1.0", author = "Ben Congdon <ben@congdon.dev>")]
 #[clap(setting = AppSettings::ColoredHelp)]
 struct Opts {
+    /// If set, archived URLs are saved to the path specified by this flag.
+    /// Otherwise, URLs are printed at the end of the command run.
     #[clap(short, long)]
     out: Option<String>,
+    /// If set, the results are merged with the (existing) contents of
+    /// the --out file.
     #[clap(short, long)]
     merge: bool,
+    /// A file containing urls to archive.
     #[clap(short, long)]
     urls_file: Option<String>,
+    /// URLs to archive using the Wayback Machine. URLs can also
+    /// be provided using stdin, or with --urls_file.
     urls: Vec<String>,
 }
 
