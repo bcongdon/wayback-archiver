@@ -167,7 +167,11 @@ fn write_results(
     path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let formatted_urls = serde_json::to_string_pretty(&results)?;
-    let mut file = fs::OpenOptions::new().write(true).create(true).open(path)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)?;
     file.write_all(formatted_urls.as_bytes())?;
     Ok(())
 }
