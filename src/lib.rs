@@ -4,8 +4,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// TODO: Figure out how to refactor this to return `Result<String, ArchiveError>`.
-pub async fn archive_url(url: &str) -> Result<ArchivingResult, Box<dyn std::error::Error>> {
+pub async fn archive_url(url: &str) -> Result<ArchivingResult, ArchiveError> {
     // Check to see if there's an existing archive of the requested URL.
     let latest_snapshot = fetch_latest_snapshot(url).await;
     if let Ok(ref snapshot) = latest_snapshot {
@@ -16,7 +15,9 @@ pub async fn archive_url(url: &str) -> Result<ArchivingResult, Box<dyn std::erro
     }
 
     // Request a new snapshot of the URL.
-    let resp = reqwest::get(format!("https://web.archive.org/save/{}", url)).await?;
+    let resp = reqwest::get(format!("https://web.archive.org/save/{}", url))
+        .await
+        .map_err(|err| ArchiveError::Unknown(err.to_string()))?;
     let archive_url: Result<String, ArchiveError> = match resp.status().as_u16() {
         // Return the redirected URL (which is the archive snapshot URL).
         200 => Ok(resp.url().clone().to_string()),
@@ -29,16 +30,19 @@ pub async fn archive_url(url: &str) -> Result<ArchivingResult, Box<dyn std::erro
                 Err(ArchiveError::Unknown(format!(
                     "Unexpected HTTP 404 at {:#?}",
                     resp.url().to_string()
-                ))
-                .into())
+                )))
             }
         }
-        509 => Err(ArchiveError::BandwidthExceeded.into()),
+        509 => Err(ArchiveError::BandwidthExceeded),
         // There may be more status codes that indicate archive failure, but these were the most common.
-        403 | 520 | 523 => Err(ArchiveError::UnableToArchive.into()),
+        403 | 520 | 523 => Err(ArchiveError::UnableToArchive),
         _ => {
             dbg!(&resp);
-            Err(ArchiveError::Unknown(format!("Got status {}: {:#?}", resp.status(), resp)).into())
+            Err(ArchiveError::Unknown(format!(
+                "Got status {}: {:#?}",
+                resp.status(),
+                resp
+            )))
         }
     };
     let result = archive_url.and_then(|url| {
@@ -56,7 +60,6 @@ pub async fn archive_url(url: &str) -> Result<ArchivingResult, Box<dyn std::erro
         }
         _ => result,
     }
-    .map_err(|err| err.into())
 }
 
 fn timestamp_from_archive_url(url: &str) -> Result<NaiveDateTime, ArchiveError> {
@@ -66,18 +69,18 @@ fn timestamp_from_archive_url(url: &str) -> Result<NaiveDateTime, ArchiveError> 
     let timestamp_url = RE
         .captures(url)
         .and_then(|cap| cap.get(1).map(|ts_str| ts_str.as_str()))
-        .ok_or(ArchiveError::ParseError(
-            "unable to extract timestamp from url".into(),
-        ))?;
+        .ok_or_else(|| ArchiveError::ParseError("unable to extract timestamp from url".into()))?;
     NaiveDateTime::parse_from_str(timestamp_url, "%Y%m%d%H%M%S")
         .map_err(|e| ArchiveError::ParseError(e.to_string()))
 }
 
-async fn fetch_latest_snapshot(url: &str) -> Result<ArchivingResult, Box<dyn std::error::Error>> {
+async fn fetch_latest_snapshot(url: &str) -> Result<ArchivingResult, ArchiveError> {
     let resp = reqwest::get(format!("http://archive.org/wayback/available?url={}", url))
-        .await?
+        .await
+        .map_err(|err| ArchiveError::Unknown(err.to_string()))?
         .json::<WaybackAvailabilityResponse>()
-        .await?;
+        .await
+        .map_err(|err| ArchiveError::ParseError(err.to_string()))?;
 
     if let Some(snapshots) = resp.archived_snapshots {
         if let Some((_, latest)) = snapshots
@@ -94,7 +97,7 @@ async fn fetch_latest_snapshot(url: &str) -> Result<ArchivingResult, Box<dyn std
             });
         }
     }
-    Err("no snapshot found".into())
+    Err(ArchiveError::NoExistingSnapshot)
 }
 
 #[derive(Deserialize, Debug)]
@@ -119,10 +122,11 @@ pub struct ArchivingResult {
     pub existing_snapshot: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ArchiveError {
     BandwidthExceeded,
     UnableToArchive,
+    NoExistingSnapshot,
     ParseError(String),
     Unknown(String),
 }
@@ -134,6 +138,7 @@ impl std::fmt::Display for ArchiveError {
             ArchiveError::UnableToArchive => {
                 write!(f, "Wayback Machine unable to archive this URL")
             }
+            ArchiveError::NoExistingSnapshot => write!(f, "No existing snapshots"),
             ArchiveError::ParseError(err) => write!(f, "Parse error: {}", err),
             ArchiveError::Unknown(err) => write!(f, "Unknown error: {}", err),
         }

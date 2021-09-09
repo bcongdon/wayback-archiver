@@ -128,9 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     success
                 }
                 Err(err) => {
-                    if let Some(ArchiveError::BandwidthExceeded) =
-                        err.downcast_ref::<ArchiveError>()
-                    {
+                    if err == ArchiveError::BandwidthExceeded {
                         pb.set_message("Bandwidth exceeded. Waiting...");
                         std::thread::sleep(Duration::seconds(15).to_std().expect("sleep duration"));
                         continue;
