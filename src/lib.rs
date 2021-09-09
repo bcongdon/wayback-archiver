@@ -66,12 +66,11 @@ fn timestamp_from_archive_url(url: &str) -> Result<NaiveDateTime, ArchiveError> 
     lazy_static! {
         static ref RE: Regex = Regex::new(r"/web/(\d+)/").unwrap();
     }
-    let timestamp_url = RE
+    let timestamp_url_component = RE
         .captures(url)
         .and_then(|cap| cap.get(1).map(|ts_str| ts_str.as_str()))
         .ok_or_else(|| ArchiveError::ParseError("unable to extract timestamp from url".into()))?;
-    NaiveDateTime::parse_from_str(timestamp_url, "%Y%m%d%H%M%S")
-        .map_err(|e| ArchiveError::ParseError(e.to_string()))
+    parse_wayback_timestamp(timestamp_url_component)
 }
 
 async fn fetch_latest_snapshot(url: &str) -> Result<ArchivingResult, ArchiveError> {
@@ -87,17 +86,19 @@ async fn fetch_latest_snapshot(url: &str) -> Result<ArchivingResult, ArchiveErro
             .iter()
             .max_by_key(|(_, snapshot)| &snapshot.timestamp)
         {
-            // TODO: Fix the expect() here.
-            let ts = NaiveDateTime::parse_from_str(&latest.timestamp, "%Y%m%d%H%M%S")
-                .expect("snapshot timestamp");
             return Ok(ArchivingResult {
                 existing_snapshot: true,
-                last_archived: ts,
+                last_archived: parse_wayback_timestamp(&latest.timestamp)?,
                 url: Some(latest.url.clone()),
             });
         }
     }
     Err(ArchiveError::NoExistingSnapshot)
+}
+
+fn parse_wayback_timestamp(ts: &str) -> Result<NaiveDateTime, ArchiveError> {
+    NaiveDateTime::parse_from_str(ts, "%Y%m%d%H%M%S")
+        .map_err(|err| ArchiveError::ParseError(err.to_string()))
 }
 
 #[derive(Deserialize, Debug)]
