@@ -7,33 +7,17 @@ use std::collections::HashMap;
 // TODO: Figure out how to refactor this to return `Result<String, ArchiveError>`.
 pub async fn archive_url(url: &str) -> Result<ArchivingResult, Box<dyn std::error::Error>> {
     // Check to see if there's an existing archive of the requested URL.
-    let resp = reqwest::get(format!("http://archive.org/wayback/available?url={}", url))
-        .await?
-        .json::<WaybackAvailabilityResponse>()
-        .await?;
-
-    if let Some(snapshots) = resp.archived_snapshots {
-        if let Some((_, latest)) = snapshots
-            .iter()
-            .max_by_key(|(_, snapshot)| &snapshot.timestamp)
-        {
-            // TODO: Fix the expect() here.
-            let ts = NaiveDateTime::parse_from_str(&latest.timestamp, "%Y%m%d%H%M%S")
-                .expect("snapshot timestamp");
-            // Only accept the existing snapshot if it was made recently.
-            if (Utc::now() - Duration::days(90)).naive_utc() < ts {
-                return Ok(ArchivingResult {
-                    existing_snapshot: true,
-                    last_archived: ts,
-                    url: Some(latest.url.clone()),
-                });
-            }
+    let latest_snapshot = fetch_latest_snapshot(url).await;
+    if let Ok(ref snapshot) = latest_snapshot {
+        // Only accept the existing snapshot if it was made recently.
+        if (Utc::now() - Duration::days(90)).naive_utc() < snapshot.last_archived {
+            return latest_snapshot;
         }
     }
 
     // Request a new snapshot of the URL.
     let resp = reqwest::get(format!("https://web.archive.org/save/{}", url)).await?;
-    let archive_url = match resp.status().as_u16() {
+    let archive_url: Result<String, ArchiveError> = match resp.status().as_u16() {
         // Return the redirected URL (which is the archive snapshot URL).
         200 => Ok(resp.url().clone().to_string()),
         404 => {
@@ -57,25 +41,60 @@ pub async fn archive_url(url: &str) -> Result<ArchivingResult, Box<dyn std::erro
             Err(ArchiveError::Unknown(format!("Got status {}: {:#?}", resp.status(), resp)).into())
         }
     };
-    archive_url.and_then(|url| {
+    let result = archive_url.and_then(|url| {
         Ok(ArchivingResult {
             last_archived: timestamp_from_archive_url(&url)?,
             url: Some(url),
             existing_snapshot: false,
         })
-    })
+    });
+    match result {
+        Err(ArchiveError::UnableToArchive) => {
+            // If we weren't able to archive the URL, but a valid (if old) snapshot exists,
+            // then return that older snapshot.
+            latest_snapshot.map_err(|_| ArchiveError::UnableToArchive)
+        }
+        _ => result,
+    }
+    .map_err(|err| err.into())
 }
 
-fn timestamp_from_archive_url(url: &str) -> Result<NaiveDateTime, Box<dyn std::error::Error>> {
+fn timestamp_from_archive_url(url: &str) -> Result<NaiveDateTime, ArchiveError> {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"/web/(\d+)/").unwrap();
     }
     let timestamp_url = RE
         .captures(url)
         .and_then(|cap| cap.get(1).map(|ts_str| ts_str.as_str()))
-        .ok_or("unable to extract timestamp from url")?;
-    // TODO: Fix the expect() here.
-    Ok(NaiveDateTime::parse_from_str(timestamp_url, "%Y%m%d%H%M%S").expect("timestamp parse"))
+        .ok_or(ArchiveError::ParseError(
+            "unable to extract timestamp from url".into(),
+        ))?;
+    NaiveDateTime::parse_from_str(timestamp_url, "%Y%m%d%H%M%S")
+        .map_err(|e| ArchiveError::ParseError(e.to_string()))
+}
+
+async fn fetch_latest_snapshot(url: &str) -> Result<ArchivingResult, Box<dyn std::error::Error>> {
+    let resp = reqwest::get(format!("http://archive.org/wayback/available?url={}", url))
+        .await?
+        .json::<WaybackAvailabilityResponse>()
+        .await?;
+
+    if let Some(snapshots) = resp.archived_snapshots {
+        if let Some((_, latest)) = snapshots
+            .iter()
+            .max_by_key(|(_, snapshot)| &snapshot.timestamp)
+        {
+            // TODO: Fix the expect() here.
+            let ts = NaiveDateTime::parse_from_str(&latest.timestamp, "%Y%m%d%H%M%S")
+                .expect("snapshot timestamp");
+            return Ok(ArchivingResult {
+                existing_snapshot: true,
+                last_archived: ts,
+                url: Some(latest.url.clone()),
+            });
+        }
+    }
+    Err("no snapshot found".into())
 }
 
 #[derive(Deserialize, Debug)]
@@ -104,6 +123,7 @@ pub struct ArchivingResult {
 pub enum ArchiveError {
     BandwidthExceeded,
     UnableToArchive,
+    ParseError(String),
     Unknown(String),
 }
 
@@ -114,6 +134,7 @@ impl std::fmt::Display for ArchiveError {
             ArchiveError::UnableToArchive => {
                 write!(f, "Wayback Machine unable to archive this URL")
             }
+            ArchiveError::ParseError(err) => write!(f, "Parse error: {}", err),
             ArchiveError::Unknown(err) => write!(f, "Unknown error: {}", err),
         }
     }

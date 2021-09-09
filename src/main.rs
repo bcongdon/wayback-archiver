@@ -88,7 +88,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    for (line_idx, line) in rx.clone().into_iter().enumerate() {
+    let mut num_archived = 0;
+    for (line_idx, line) in rx.into_iter().enumerate() {
         let pb = ProgressBar::new_spinner();
         pb.enable_steady_tick(120);
         pb.set_style(
@@ -123,6 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         std::thread::sleep(Duration::seconds(3).to_std().expect("sleep duration"));
                         pb.finish_and_clear();
                     }
+                    num_archived += 1;
                     success
                 }
                 Err(err) => {
@@ -145,7 +147,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
-        if (line_idx + 1) % 25 == 0 {
+        if (num_archived + 1) % 25 == 0 {
             if let Some(out_path) = &opts.out {
                 eprintln!("Writing intermediate results...");
                 write_results(&urls, out_path)?;
