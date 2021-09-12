@@ -89,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut num_archived = 0;
-    for (line_idx, line) in rx.into_iter().enumerate() {
+    for (line_idx, line) in rx.into_iter().map(|l| l.trim().to_string()).enumerate() {
         let pb = ProgressBar::new_spinner();
         pb.enable_steady_tick(120);
         pb.set_style(
@@ -109,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        pb.set_message(format!("Archiving {}...", line));
+        pb.set_message(format!("Archiving {} ...", line));
         loop {
             let result = match archive_url(&line).await {
                 Ok(success) => {
@@ -141,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             };
-            urls.insert(line.clone(), result);
+            urls.insert(line.to_string(), result);
             break;
         }
 
