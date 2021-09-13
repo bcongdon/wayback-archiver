@@ -1,4 +1,4 @@
-use chrono::{Duration, NaiveDateTime, Utc};
+use chrono::{Duration, NaiveDateTime, TimeZone, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -97,8 +97,9 @@ async fn fetch_latest_snapshot(url: &str) -> Result<ArchivingResult, ArchiveErro
 }
 
 fn parse_wayback_timestamp(ts: &str) -> Result<NaiveDateTime, ArchiveError> {
-    NaiveDateTime::parse_from_str(ts, "%Y%m%d%H%M%S")
-        .map_err(|err| ArchiveError::ParseError(err.to_string()))
+    let naive_utc = NaiveDateTime::parse_from_str(ts, "%Y%m%d%H%M%S")
+        .map_err(|err| ArchiveError::ParseError(err.to_string()))?;
+    Ok(Utc.from_utc_datetime(&naive_utc).naive_local())
 }
 
 #[derive(Deserialize, Debug)]
