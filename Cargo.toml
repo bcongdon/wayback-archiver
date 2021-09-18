@@ -1,11 +1,12 @@
 [package]
 name = "wayback-archiver"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 authors = ["Ben Congdon <ben@congdon.dev>"]
 license = "MIT"
 description = "CLI tool for archiving URLs to the Internet Archive's \"Wayback Machine\""
 repository = "https://github.com/bcongdon/wayback-archiver"
+categories = ["command-line-utilities"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
