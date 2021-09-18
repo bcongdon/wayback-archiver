@@ -1,7 +1,23 @@
 # wayback-archiver
+
 CLI archival tool for the Wayback Machine
 
+## Installation
+
+    $ cargo install wayback-archiver
+
+### Examples:
+
+```sh
+$ wayback-archiver google.com
+
+$ wayback-archiver --urls-file urls.txt --out archive.json
+
+$ echo "google.com\nwikipedia.org\ngithub.com" | wayback-archiver --out=archive.json --merge
+```
+
 ## Usage
+
 ```
 USAGE:
     wayback-archiver [FLAGS] [OPTIONS] [URLS]...
@@ -21,12 +37,6 @@ OPTIONS:
     -u, --urls-file <URLS_FILE>    A file containing urls to archive
 ```
 
-### Examples:
+## Attribution
 
-```sh
-$ wayback-archiver google.com
-
-$ wayback-archiver --urls-file urls.txt --out archive.json
-
-$ echo "google.com\nwikipedia.org\ngithub.com" | wayback-archiver --out=archive.json --merge
-```
+This tool only functions because of the Internet Archive. Please consider [dontating](https://archive.org/donate) to their cause.
