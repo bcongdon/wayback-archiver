@@ -1,5 +1,7 @@
 # wayback-archiver
 
+![crates.io](https://img.shields.io/crates/v/wayback-archiver.svg)
+
 CLI archival tool for the Wayback Machine
 
 ## Installation
