@@ -18,6 +18,10 @@ $ wayback-archiver --urls-file urls.txt --out archive.json
 $ echo "google.com\nwikipedia.org\ngithub.com" | wayback-archiver --out=archive.json --merge
 ```
 
+### Demo
+
+![](demo.gif)
+
 ## Usage
 
 ```
