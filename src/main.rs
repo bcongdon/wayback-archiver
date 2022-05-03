@@ -24,7 +24,7 @@ struct Opts {
     #[clap(short, long)]
     merge: bool,
     /// A file containing urls to archive.
-    #[clap(short, long)]
+    #[clap(short = 'i', long)]
     urls_file: Option<String>,
     /// URLs to archive using the Wayback Machine. URLs can also
     /// be provided using stdin, or with --urls_file.
