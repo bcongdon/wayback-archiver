@@ -121,7 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let pb = ProgressBar::new_spinner();
                         pb.enable_steady_tick(180);
                         pb.set_message("Cooldown after archiving...");
-                        std::thread::sleep(Duration::seconds(3).to_std().expect("sleep duration"));
+                        std::thread::sleep(Duration::seconds(5).to_std().expect("sleep duration"));
                         pb.finish_and_clear();
                     }
                     num_archived += 1;
