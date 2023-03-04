@@ -12,7 +12,7 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 clap = "3.0.0-beta.4"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json"], default-features = false }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4.19", features = ["serde"] }
@@ -21,3 +21,8 @@ indicatif = "0.16.2"
 crossbeam-channel = "0.5.1"
 lazy_static = "1.4.0"
 regex = "1"
+
+[features]
+default = ["native-tls"]
+rustls = ["reqwest/rustls-tls"]
+native-tls = ["reqwest/default-tls"]
